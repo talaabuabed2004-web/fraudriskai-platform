@@ -1,5 +1,8 @@
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
+from streamlit_autorefresh import st_autorefresh
+from zoneinfo import ZoneInfo
 
 import joblib
 import numpy as np
@@ -18,6 +21,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
 
 # =========================================================
 # CSS / DESIGN SYSTEM
@@ -255,6 +259,38 @@ section[data-testid="stSidebar"] .stButton>button:hover{
 .output-card-sub{font-weight:750;color:#64748B;font-size:12px;line-height:1.55;}
 .output-chip{display:inline-block;margin-top:10px;background:#EFF6FF;border:1px solid #BFDBFE;color:#0B5BD3;border-radius:999px;padding:5px 9px;font-size:11px;font-weight:950;}
 @media(max-width:1100px){.output-grid{grid-template-columns:1fr;}}
+
+
+/* SAFE MOBILE LIGHT MODE FIX */
+html, body, [class*="css"] {
+    color-scheme: light !important;
+}
+.stApp {
+    background: #F6F8FC !important;
+    color: #071226 !important;
+}
+.card,
+.chart-header,
+.kpi-card,
+.metric-mini,
+.playbook-card,
+.live-counter-card,
+.pipeline-step,
+.report-toolbar,
+.output-card,
+div[data-testid="stDataFrame"],
+div[data-baseweb="select"] > div,
+input,
+textarea {
+    background-color: #FFFFFF !important;
+    color: #071226 !important;
+}
+.stButton > button,
+.stDownloadButton > button {
+    background: #FFFFFF !important;
+    color: #071226 !important;
+    border-color: #D6E0EC !important;
+}
 
 </style>
 """,
@@ -495,7 +531,7 @@ def log_action(txn, action, note="", row=None, playbook_action=None):
 
     final_account_status = st.session_state.account_actions.get(account_id, "Active") if account_id else ""
     st.session_state.audit_log.append({
-        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Timestamp": jordan_now().strftime("%Y-%m-%d %H:%M:%S"),
         "TransactionID": txn,
         "AccountID": account_id,
         "Analyst": "Risk Analyst",
@@ -537,8 +573,15 @@ def badge_class(value):
     return "badge-red"
 
 
+
+def jordan_now():
+    return datetime.now(ZoneInfo("Asia/Amman"))
+
+
 def render_topbar(title, subtitle, show_export=True, df=None):
-    today_text = datetime.now().strftime("%b %d, %Y")
+    now = jordan_now()
+    today_text = now.strftime("%b %d, %Y")
+    time_text = now.strftime("%I:%M:%S %p")
     st.markdown(f"""
     <div class="topbar">
         <div class="page-title">
@@ -546,7 +589,7 @@ def render_topbar(title, subtitle, show_export=True, df=None):
             <p>{safe_html(subtitle)}</p>
         </div>
         <div class="top-actions">
-            <div class="action-chip">🗓️ {today_text}</div>
+            <div class="action-chip">🗓️ {today_text}<br>🕒 {time_text}<br>Amman, Jordan</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -667,11 +710,19 @@ def sidebar(df=None):
     page = st.sidebar.radio("Navigation", pages, index=pages.index(current))
     st.session_state.current_page = page
 
+    jordan_time = jordan_now()
+    if "session_started_at" not in st.session_state:
+        st.session_state.session_started_at = datetime.now().timestamp()
+    runtime_seconds = max(0, int(datetime.now().timestamp() - st.session_state.session_started_at))
+    runtime_h = runtime_seconds // 3600
+    runtime_m = (runtime_seconds % 3600) // 60
+    runtime_s = runtime_seconds % 60
+
     st.sidebar.markdown(f"""
     <div class="sidebar-pill"><span>Open Queue</span><span class="{badge_class(open_cases)}">{open_cases}</span></div>
     <div class="sidebar-pill"><span>Critical</span><span class="{badge_class(critical)}">{critical}</span></div>
     <div class="sidebar-user"><div class="avatar">👤</div><div><b>Risk Analyst</b><br><span class="small-muted">Fraud Operations</span></div></div>
-    <div style="margin-top:18px" class="small-muted"><span class="dot"></span>Last Updated<br>{datetime.now().strftime('%b %d, %Y %I:%M %p')}<br>Reviewed cases: {reviewed}</div>
+    <div style="margin-top:18px" class="small-muted"><span class="dot"></span>Last Updated<br>{jordan_time.strftime('%b %d, %Y %I:%M:%S %p')}<br>Reviewed cases: {reviewed}<br><br>System Runtime<br>{runtime_h:02d}h {runtime_m:02d}m {runtime_s:02d}s</div>
     """, unsafe_allow_html=True)
 
     if df is not None:
@@ -844,7 +895,7 @@ def upload_gate():
     st.session_state.df = apply_decisions(process_data(raw_df))
     st.session_state.live_count = min(50, len(st.session_state.df))
     st.session_state.data_loaded = True
-    st.session_state.last_loaded_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state.last_loaded_at = jordan_now().strftime("%Y-%m-%d %H:%M:%S")
     st.success("Dataset analyzed successfully. Opening Command Center...")
     time.sleep(0.5)
     st.rerun()
@@ -1497,6 +1548,10 @@ def page_audit_reports(df):
 # =========================================================
 if not st.session_state.data_loaded:
     upload_gate()
+
+# Run the clock refresh only after the dataset is fully loaded.
+# This prevents the upload/analyze progress from restarting every second.
+st_autorefresh(interval=1000, key="live_clock_refresh")
 
 df = apply_decisions(st.session_state.df)
 page = sidebar(df)
